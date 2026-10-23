@@ -3,6 +3,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="color-scheme" content="light dark">
 <link rel="manifest" href="manifest.webmanifest">
+<script defer src="https://cdn.jsdelivr.net/npm/tesseract.js@5.1.1/dist/tesseract.min.js"></script>
 <meta name="theme-color" content="#3a3a3a">
 <link rel="apple-touch-icon" href="icon-192.png">
 <title>Kabel Vision · Inspeção por imagem</title>
@@ -41,14 +42,21 @@ canvas{width:100%;height:auto;border-radius:8px;display:block;margin:8px 0}
 .cmp img{max-width:100%;max-height:110px;border-radius:6px;border:2px solid var(--bd);display:block;margin-bottom:2px}
 .sw{display:inline-block;width:14px;height:14px;border-radius:4px;border:1px solid var(--bd);vertical-align:-2px;margin:0 3px}
 .gal{display:flex;flex-wrap:wrap;gap:6px;margin-top:6px}.th{width:48px;height:48px;object-fit:cover;border-radius:6px;border:3px solid var(--bd)}
+.bn{font-weight:800;font-size:1.35rem;text-align:center;padding:.5em;border-radius:10px;color:#fff}.bn.ok{background:var(--ok)}.bn.no{background:var(--no);animation:pl 1s infinite}.bn.wa{background:var(--wa);color:#1c1c1c}
+#ov{position:fixed;inset:0;z-index:50;background:#000;color:#fff;display:flex;flex-direction:column;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}#ov[hidden]{display:none}
+#vw{position:relative;margin:0 auto;width:fit-content;max-width:100%}#vd{display:block;max-width:100%;max-height:48vh}#lv{position:absolute;inset:0;width:100%;height:100%}
+#oi{flex:1;min-height:0;overflow:auto;padding:8px 10px}.bd{font-size:.9rem;margin-top:6px}#ob{display:flex;gap:8px;padding:10px}#ob>*{flex:1}#ob .g{color:#fff;border-color:#777}
+nav button{font-size:.8rem;padding:.7em .2em}
 summary{cursor:pointer;font-weight:600}
+.it.nc{animation:pl 1s infinite}@keyframes pl{0%,100%{box-shadow:0 0 0 0 rgba(217,48,37,0)}50%{box-shadow:0 0 0 4px rgba(217,48,37,.75)}}
 </style></head><body>
 <header><b>KABEL</b> Vision <span>inspeção por imagem</span><button class="g" onclick="document.documentElement.classList.toggle('big')" title="Modo texto grande">Aa</button></header>
 <main>
-<nav><button data-v="insp" onclick="go('insp')">Inspecionar</button><button data-v="rec" onclick="go('rec')">Referências</button><button data-v="log" onclick="go('log')">Registro</button></nav>
+<nav><button data-v="insp" onclick="go('insp')">Inspecionar</button><button data-v="rec" onclick="go('rec')">Referências</button><button data-v="log" onclick="go('log')">Registro</button><button data-v="dat" onclick="go('dat')">Dados</button></nav>
 <div id="msg" class="mu"></div><div id="app"></div>
 <p class="mu">Protótipo: o sinal ao WinTestEm é simulado nesta versão (o relé entra na fase do PC). Fotos e receitas ficam apenas neste aparelho.</p>
 </main>
+<div id="ov" hidden><div id="vw"><video id="vd" playsinline muted autoplay></video><canvas id="lv"></canvas></div><div id="oi"></div><div id="ob"><button class="g" id="bx">✕ Fechar</button><button class="g" id="bs">⟲ Câmera</button><label class="g">🖼 Galeria<input type="file" accept="image/*" hidden id="gf"></label><button class="b" id="bc" style="margin:0">Capturar</button></div></div>
 <script>
 const $=s=>document.querySelector(s);
 const esc=s=>String(s).replace(/[&<>"']/g,m=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[m]));
@@ -63,56 +71,120 @@ function fromURL(u){return new Promise(r=>{const i=new Image();i.onload=()=>{con
 const T=document.createElement("canvas");T.width=T.height=6;const TX=T.getContext("2d",{willReadFrequently:true});TX.imageSmoothingQuality="high";
 function feat(c,rx,ry,rw,rh,dx=0,dy=0){const W=c.width,H=c.height,w=rw*W,h=rh*H;let x=(rx+dx)*W,y=(ry+dy)*H;x=Math.max(0,Math.min(W-w,x));y=Math.max(0,Math.min(H-h,y));TX.drawImage(c,x,y,w,h,0,0,6,6);const d=TX.getImageData(0,0,6,6).data,v=[];let m=0;for(let i=0;i<d.length;i+=4){v.push(d[i],d[i+1],d[i+2]);m+=d[i]+d[i+1]+d[i+2]}m=m/v.length||1;return v.map(a=>+(a/m).toFixed(3))}
 const dist=(a,b)=>a.reduce((s,v,i)=>s+Math.abs(v-b[i]),0)/a.length;
-function judge(c,rec){return rec.rois.map(o=>{const fs=[];for(const dx of[-.02,0,.02])for(const dy of[-.02,0,.02])fs.push(feat(c,o.x,o.y,o.w,o.h,dx,dy));
-const m=ss=>ss.length?Math.min(...fs.flatMap(f=>ss.map(s=>dist(f,s)))):9;
-const ok=m(o.ok),no=m(o.no),th=rec.th;let s=ok<=th*.7?"ok":ok>th?"no":"inc";
-if(no<ok)s="no";else if(s=="ok"&&no<ok*1.5)s="inc";return{n:o.n,ok,no,s}})}
+let bt;
+function gray(c,W){const k=W/c.width,w=W,h=Math.max(1,Math.round(c.height*k)),t=document.createElement("canvas");t.width=w;t.height=h;const x=t.getContext("2d",{willReadFrequently:true});x.imageSmoothingQuality="high";x.drawImage(c,0,0,w,h);const d=x.getImageData(0,0,w,h).data,g=new Float32Array(w*h);for(let i=0;i<w*h;i++)g[i]=.3*d[i*4]+.59*d[i*4+1]+.11*d[i*4+2];return{w,h,g}}
+function sharp(G){let s=0,q=0,n=0;for(let y=1;y<G.h-1;y++)for(let x=1;x<G.w-1;x++){const i=y*G.w+x,v=4*G.g[i]-G.g[i-1]-G.g[i+1]-G.g[i-G.w]-G.g[i+G.w];s+=v;q+=v*v;n++}return q/n-(s/n)*(s/n)}
+function find(G,R,o){const tw0=Math.max(8,Math.round(o.w*R.w)),th0=Math.max(8,Math.round(o.h*R.h)),tx=Math.round(o.x*R.w),ty=Math.round(o.y*R.h),fx={box:{x:o.x,y:o.y,w:o.w,h:o.h},ncc:null};let B=null;
+for(const sc of[1,.8,.9,1.12,1.25]){const tw=Math.round(tw0*sc),th=Math.round(th0*sc);if(tw>=G.w||th>=G.h)continue;
+const st=tw>24?2:1,idx=[],T=[];for(let j=0;j<th;j+=st)for(let i=0;i<tw;i+=st){idx.push(j*G.w+i);T.push(R.g[Math.min(R.h-1,ty+Math.floor(j/sc))*R.w+Math.min(R.w-1,tx+Math.floor(i/sc))])}
+const n=T.length;let mt=0;for(const v of T)mt+=v;mt/=n;let vt=0;for(const v of T)vt+=(v-mt)*(v-mt);vt=Math.sqrt(vt)||1;
+if(sc==1&&vt/Math.sqrt(n)<6)return fx;
+for(let y=0;y<=G.h-th;y+=2)for(let x=0;x<=G.w-tw;x+=2){let s=0,qq=0,p=0;const b=y*G.w+x;for(let a=0;a<n;a++){const g=G.g[b+idx[a]];s+=g;qq+=g*g;p+=g*T[a]}
+const ncc=(p-s*mt)/(Math.sqrt(Math.max(qq-s*s/n,1e-6))*vt),sco=ncc-.1*Math.hypot((x-tx)/G.w,(y-ty)/G.h);if(!B||sco>B.sco)B={sco,ncc,x,y,tw,th}}}
+return B?{box:{x:B.x/G.w,y:B.y/G.h,w:B.tw/G.w,h:B.th/G.h},ncc:B.ncc}:fx}
+function judge(c,rec,gt,gr,bl){const thr=bl<.6?.3:.5;return rec.rois.map(o=>{const q=find(gt,gr,o),bx=q.box,f=feat(c,bx.x,bx.y,bx.w,bx.h),m=ss=>ss.length?Math.min(...ss.map(a=>dist(f,a))):9;
+const ok=m(o.ok),no=m(o.no),th=rec.th;let s=ok<=th*.7?"ok":ok>th?"no":"inc";if(no<ok)s="no";else if(s=="ok"&&no<ok*1.5)s="inc";if(q.ncc!==null&&q.ncc<thr)s="no";
+return{n:o.n,ok,no,s,thr,box:bx,ncc:q.ncc,sim:Math.max(0,1-ok/(th*2.5))}})}
 function thumb(c){const t=document.createElement("canvas");t.width=84;t.height=63;t.getContext("2d").drawImage(c,0,0,84,63);return t.toDataURL("image/jpeg",.5)}
 const col=s=>s=="ok"?"ok":s=="no"?"no":"wa";
 const T2=document.createElement("canvas");T2.width=T2.height=12;const X2=T2.getContext("2d",{willReadFrequently:true});X2.imageSmoothingQuality="high";
 function stats(c,o){X2.drawImage(c,o.x*c.width,o.y*c.height,o.w*c.width,o.h*c.height,0,0,12,12);const d=X2.getImageData(0,0,12,12).data;let r=0,g=0,b=0,L=[];for(let i=0;i<d.length;i+=4){r+=d[i];g+=d[i+1];b+=d[i+2];L.push(.3*d[i]+.59*d[i+1]+.11*d[i+2])}const n=L.length,m=L.reduce((a,v)=>a+v,0)/n;return{rgb:[r/n|0,g/n|0,b/n|0],sd:Math.sqrt(L.reduce((a,v)=>a+(v-m)*(v-m),0)/n)}}
 function cname(r,g,b){const mx=Math.max(r,g,b),mn=Math.min(r,g,b),d=mx-mn,v=mx/255,s=mx?d/mx:0;if(v<.2)return"preto";if(s<.2)return v>.8?"branco":"cinza";let h=mx==r?((g-b)/d)%6:mx==g?(b-r)/d+2:(r-g)/d+4;h=(h*60+360)%360;if(h<15||h>=345)return v<.5?"marrom":"vermelho";if(h<40)return v<.55?"marrom":"laranja";if(h<70)return"amarelo";if(h<165)return"verde";if(h<200)return"ciano";if(h<260)return"azul";if(h<300)return"roxo";return"rosa"}
 function crop(c,o,m=120,q=.7){const w=o.w*c.width,h=o.h*c.height,k=Math.min(1,m/Math.max(w,h)),t=document.createElement("canvas");t.width=Math.max(1,w*k|0);t.height=Math.max(1,h*k|0);t.getContext("2d").drawImage(c,o.x*c.width,o.y*c.height,w,h,0,0,t.width,t.height);return t.toDataURL("image/jpeg",q)}
-function learn(c,o,k){o[k].push(feat(c,o.x,o.y,o.w,o.h));const t=k=="ok"?"ot":"nt";(o[t]=o[t]||[]).push(crop(c,o,64,.6))}
-function diag(c,rc,rec,res){return res.map((r,i)=>{const o=rec.rois[i],A=stats(rc,o),B=stats(c,o),cn=[cname(...A.rgb),cname(...B.rgb)],cd=Math.hypot(A.rgb[0]-B.rgb[0],A.rgb[1]-B.rgb[1],A.rgb[2]-B.rgb[2])/441;let t="Conforme",a="";
-if(r.s!="ok"){if(cn[0]!=cn[1]&&cd>.12){t=`Cor diferente do esperado: esperado ${cn[0]}, encontrado ${cn[1]}`;a="Trocar pelo componente ou acessório da cor correta"}
-else if(A.sd>8&&B.sd<A.sd*.55){t="Item possivelmente ausente: a região não mostra o detalhe esperado";a="Montar o item que está faltando"}
-else if(r.no<r.ok){t="Parecido com um defeito já ensinado";a="Corrigir a montagem conforme a referência"}
-else if(r.s=="no"){t="Aparência diferente da referência (item trocado, deslocado ou de outro tipo)";a="Conferir o tipo, a posição e o sentido do item"}
-else{t="Resultado incerto, perto do limite de aprovação";a="Refazer a foto com boa luz; se persistir, chamar o supervisor"}}
-return{...r,i,n:o.n,t,a,A,B,cn,ex:crop(rc,o),fo:crop(c,o)}})}
+function learn(c,o,k,bx){bx=bx||o;o[k].push(feat(c,bx.x,bx.y,bx.w,bx.h));const t=k=="ok"?"ot":"nt";(o[t]=o[t]||[]).push(crop(c,bx,64,.6))}
+const f2=(v,n=2)=>v.toFixed(n).replace(".",",");
+function lab(r,g,b){const f=v=>{v/=255;return v>.04045?Math.pow((v+.055)/1.055,2.4):v/12.92},R=f(r),G=f(g),B=f(b),h=t=>t>.008856?Math.cbrt(t):7.787*t+16/116;const X=h((.4124*R+.3576*G+.1805*B)/.95047),Y=h(.2126*R+.7152*G+.0722*B),Z=h((.0193*R+.1192*G+.9505*B)/1.08883);return[116*Y-16,500*(X-Y),200*(Y-Z)]}
+function loo(o){const A=o.ok,B=o.no;let n=0,c=0;if(B.length)A.forEach((s,i)=>{const r=A.filter((_,j)=>j!=i);if(r.length){n++;if(Math.min(...r.map(a=>dist(s,a)))<Math.min(...B.map(b=>dist(s,b))))c++}});
+B.forEach((s,i)=>{const r=B.filter((_,j)=>j!=i);n++;if((r.length?Math.min(...r.map(b=>dist(s,b))):9)<Math.min(...A.map(a=>dist(s,a))))c++});return{n,acc:n?c/n:null}}
+const accTxt=o=>{if(o.tp=="ocr")return"n/d (ROI OCR)";const a=loo(o);return a.acc===null?"n/d (requer amostras NOK)":Math.round(a.acc*100)+"% (n = "+a.n+")"};
+const lvl=o=>{if(o.tp=="ocr")return o.tx?3:1;const a=loo(o).acc,nO=o.ok.length,nN=o.no.length;return nO>=10&&nN>=5&&a>=.95?4:nO>=3&&nN>=2&&a!==null&&a>=.9?3:nO>=3?2:1};
+const lvN=["","Nível 1 · referência única","Nível 2 · treinamento parcial (classe OK)","Nível 3 · validado (OK + NOK)","Nível 4 · robusto"];
+const nxt=["","adicione ao menos 3 amostras OK","rotule ao menos 2 amostras NOK em Inspecionar e mantenha acurácia LOO ≥ 90%","alcance n_OK ≥ 10, n_NOK ≥ 5 e acurácia LOO ≥ 95%","nível máximo atingido"];
+function diag(c,rc,rec,res){return res.map((r,i)=>{const o=rec.rois[i],bx=r.box,A=stats(rc,o),B=stats(c,bx),la=lab(...A.rgb),lb=lab(...B.rgb),dab=Math.hypot(la[1]-lb[1],la[2]-lb[2]),dL=Math.abs(la[0]-lb[0]),cn=[cname(...A.rgb),cname(...B.rgb)];let t="Conforme à referência",a="",k="Conforme";
+if(r.oc){k=r.oc.k;t=r.oc.t;a=r.oc.a}else if(r.s!="ok"){if(r.ncc!==null&&r.ncc<r.thr){k="Ausência ou fora de campo";t=`Referência não localizada na imagem (NCC = ${f2(r.ncc)} < ${f2(r.thr)}): possível ausência do componente ou região fora do campo de visão`;a="Verificar a presença do componente e reenquadrar a foto"}
+else if(cn[0]!=cn[1]&&(dab>12||dL>25)){k="Desvio cromático";t=`Desvio cromático ΔE*ab = ${f2(dab,1)} (referência: ${cn[0]} · encontrado: ${cn[1]})`;a="Substituir pelo componente com a cor especificada"}
+else if(A.sd>8&&B.sd<A.sd*.55){k="Perda de detalhe";t=`Perda de detalhe estrutural (σL = ${f2(B.sd,1)} contra ${f2(A.sd,1)} na referência): possível ausência do componente`;a="Montar o componente faltante"}
+else if(r.no<r.ok){k="Similar a NC treinada";t=`Similaridade com a classe NOK treinada (d_NOK = ${f2(r.no,3)} < d_OK = ${f2(r.ok,3)})`;a="Corrigir a montagem conforme a referência"}
+else if(r.s=="no"){k="Divergência morfológica";t=`Divergência morfológica (d_OK = ${f2(r.ok,3)} > τ = ${f2(rec.th,2)}): componente trocado, deslocado ou de geometria distinta`;a="Conferir tipo, posição e sentido do componente"}
+else{k="Indeterminado";t=`Score na faixa de incerteza (d_OK = ${f2(r.ok,3)}; 0,7τ < d_OK ≤ τ): decisão não conclusiva, tratada como NC (fail-safe)`;a="Refazer a foto com iluminação adequada; persistindo, acionar o supervisor"}}
+return{...r,i,n:o.n,k,t,a,A,B,cn}})}
 const sw=a=>`<span class="sw" style="background:rgb(${a.join(",")})"></span>`;
-const cam=t=>`<label class="b" style="margin-top:10px">${t}<input type="file" accept="image/*" capture="environment" hidden onchange="insp(this)"></label>`;
+let vs=null,facing="environment",lm=false,ow=null,au=null;
+const nz=t=>(t||"").toUpperCase().replace(/[^A-Z0-9]/g,""),fold=t=>t.replace(/O/g,"0").replace(/[IL]/g,"1").replace(/S/g,"5").replace(/B/g,"8").replace(/Z/g,"2");
+function lev(a,b){const m=a.length,n=b.length,d=Array.from({length:m+1},(_,i)=>[i,...Array(n).fill(0)]);for(let j=1;j<=n;j++)d[0][j]=j;for(let i=1;i<=m;i++)for(let j=1;j<=n;j++)d[i][j]=Math.min(d[i-1][j]+1,d[i][j-1]+1,d[i-1][j-1]+(a[i-1]==b[j-1]?0:1));return d[m][n]}
+async function ocrW(){if(ow)return ow;if(!window.Tesseract)throw new Error("sem motor OCR");const m=$("#oi");if(m&&!$("#ov").hidden)m.textContent="Carregando motor OCR (primeira vez, requer internet)…";ow=await Tesseract.createWorker("eng");await ow.setParameters({tessedit_pageseg_mode:"6"});return ow}
+async function ocr(c,bx){const px=.05*bx.w,py=.05*bx.h,X=Math.max(0,bx.x-px),Y=Math.max(0,bx.y-py),w=Math.min(1-X,bx.w+2*px)*c.width,h=Math.min(1-Y,bx.h+2*py)*c.height,k=Math.max(1,Math.min(4,260/h)),t=document.createElement("canvas");t.width=w*k|0;t.height=h*k|0;const x=t.getContext("2d");x.filter="grayscale(1) contrast(1.5)";x.drawImage(c,X*c.width,Y*c.height,w,h,0,0,t.width,t.height);const W=await ocrW();return(await W.recognize(t)).data.text}
+function beep(f,n=1){try{au=au||new(window.AudioContext||window.webkitAudioContext)();au.resume();for(let i=0;i<n;i++){const o=au.createOscillator(),g=au.createGain();o.frequency.value=f;g.gain.value=.15;o.connect(g);g.connect(au.destination);o.start(au.currentTime+i*.2);o.stop(au.currentTime+i*.2+.12)}}catch(e){}}
+async function camOn(){camOff();const V=$("#vd"),v=f=>({video:{facingMode:f,width:{ideal:1280},height:{ideal:960}},audio:false});try{try{vs=await navigator.mediaDevices.getUserMedia(v({exact:facing}))}catch(e){vs=await navigator.mediaDevices.getUserMedia(v({ideal:facing}))}V.srcObject=vs;await V.play()}catch(e){$("#oi").textContent="Câmera indisponível: permita o acesso à câmera no navegador ou use a Galeria."}}
+function camOff(){if(vs){vs.getTracks().forEach(t=>t.stop());vs=null}}
+function snap(){const v=$("#vd");if(!v.videoWidth)return null;const k=Math.min(1,800/Math.max(v.videoWidth,v.videoHeight)),c=document.createElement("canvas");c.width=v.videoWidth*k|0;c.height=v.videoHeight*k|0;c.getContext("2d").drawImage(v,0,0,c.width,c.height);return c}
+async function bestF(){let b=null,m=-1;for(let i=0;i<5;i++){const c=snap();if(c){const q=sharp(gray(c,200));if(q>m){m=q;b=c}}await new Promise(z=>setTimeout(z,90))}return b}
+function ovOpen(msg,btn){$("#ov").hidden=false;$("#oi").textContent=msg;$("#bc").textContent=btn||"Capturar";$("#gf").onchange=null;$("#bs").onclick=()=>{facing=facing=="environment"?"user":"environment";camOn()}}
+function ovClose(){lm=false;camOff();$("#ov").hidden=true;$("#lv").getContext("2d").clearRect(0,0,9999,9999)}
+function grab(){return new Promise(res=>{ovOpen("Enquadre e toque em Capturar (o app escolhe o quadro mais nítido).");camOn();
+$("#bc").onclick=async()=>{const c=await bestF();ovClose();res(c)};$("#bx").onclick=()=>{ovClose();res(null)};$("#gf").onchange=async e=>{const f=e.target.files[0];e.target.value="";if(!f)return;const c=await load(f);ovClose();res(c)}})}
+const cam=t=>`<button class="b" style="margin-top:10px" onclick="go1()">${t}</button>`;
 function vI(){if(!sel&&S.recipes[0])sel=S.recipes[0].id;
-const o=S.recipes.map(r=>`<option value="${r.id}"${r.id==sel?" selected":""}>${esc(r.name)} (${r.rois.length} regiões)</option>`).join("");
-return `<div class="c"><label>Receita (código do chicote)</label><select onchange="sel=this.value">${o||'<option value="">Nenhuma receita criada</option>'}</select>${cam("📷 Fotografar e inspecionar")}</div>${last?resH():""}`}
-function resH(){const L=last,bad=L.dg.filter(x=>x.s!="ok"),tx={ok:"APROVADO",no:"REPROVADO",inc:"INCONCLUSIVO · tratar como reprovado"}[L.f];
-const dgH=bad.length?`<div class="c"><b>Diagnóstico: o que corrigir (${bad.length} ${bad.length>1?"itens":"item"})</b>${bad.map(x=>`<div class="it ${x.s=="no"?"":"wa"}"><div class="nm">${x.i+1}. ${esc(x.n)}</div><div>${x.t}</div><div class="mu">Esperado ${sw(x.A.rgb)}${x.cn[0]} · encontrado ${sw(x.B.rgb)}${x.cn[1]}</div><div class="ac">→ ${x.a}</div><div class="cmp"><figure><img src="${x.ex}" alt="">Esperado</figure><figure><img src="${x.fo}" alt="">Encontrado</figure></div></div>`).join("")}${cam("📷 Fotografar novamente após corrigir")}</div>`:`<div class="c"><b>Diagnóstico: nenhuma correção necessária</b><div class="mu">Todas as regiões estão conformes com a referência.</div></div>`;
-return `<div class="c"><div class="rs ${col(L.f)}">${tx}</div><div class="mu">Sinal ao WinTestEm: <b>${L.f=="ok"?"LIBERADO":"BLOQUEADO"}</b></div></div>${dgH}<div class="c"><canvas id="cv"></canvas>${L.dg.map(x=>`<div class="row"><span class="dot ${col(x.s)}"></span><span style="flex:1">${x.i+1}. ${esc(x.n)} <span class="mu">${x.s=="ok"?"conforme":"divergente"}</span></span></div>`).join("")}</div>
-<details class="c"><summary>Ensinar o sistema com esta foto</summary>${L.dg.map(x=>`<div class="row"><span style="flex:1">${x.i+1}. ${esc(x.n)}</span><button class="g" onclick="teach('ok',${x.i})">É OK</button><button class="g" onclick="teach('no',${x.i})">É NOK</button></div>`).join("")}<button class="g" style="width:100%;margin-top:8px" onclick="teach('ok')">Todas as regiões estão OK</button></details>`}
-async function insp(i){const f=i.files[0];i.value="";if(!f)return;const r=S.recipes.find(x=>x.id==sel);
-if(!r||!r.rois.length){say("Selecione uma receita que tenha regiões marcadas.");return}
-const c=await load(f),rc=await fromURL(r.ref),res=judge(c,r),dg=diag(c,rc,r,res),fin=res.some(x=>x.s=="no")?"no":res.some(x=>x.s=="inc")?"inc":"ok";
-last={c,r,res,dg,f:fin};S.log.unshift({t:Date.now(),n:r.name,f:fin,th:thumb(c),d:dg.filter(x=>x.s!="ok").map(x=>x.n+": "+x.t).join("; ")});S.log=S.log.slice(0,80);save();say("");R();scrollTo(0,0)}
-function teach(k,i){if(!last)return;last.r.rois.forEach((o,j)=>{if(i===undefined||i===j)learn(last.c,o,k)});save();say("Aprendido como "+(k=="ok"?"OK":"NOK")+". Fotografe de novo para conferir.")}
-function paint(){const cv=$("#cv");if(!cv||!last)return;const c=last.c;cv.width=c.width;cv.height=c.height;const x=cv.getContext("2d");x.drawImage(c,0,0);x.lineWidth=Math.max(3,c.width/150);x.font=`bold ${Math.max(14,c.width/35)}px sans-serif`;
-last.r.rois.forEach((o,i)=>{x.strokeStyle=x.fillStyle={ok:"#1f9d55",no:"#d93025",inc:"#e0a000"}[last.res[i].s];x.strokeRect(o.x*c.width,o.y*c.height,o.w*c.width,o.h*c.height);x.fillText((i+1)+" "+o.n,o.x*c.width+4,o.y*c.height-5)})}
+const o=S.recipes.map(r=>`<option value="${r.id}"${r.id==sel?" selected":""}>${esc(r.name)} (${r.rois.length} ROIs)</option>`).join("");
+return `<div class="c"><label>Modelo de inspeção (código do chicote)</label><select onchange="sel=this.value">${o||'<option value="">Nenhum modelo criado</option>'}</select><button class="b" style="margin-top:10px" onclick="liveInsp()">▶ Inspeção contínua (aprovação automática)</button><button class="g" style="width:100%;margin-top:8px" onclick="go1()">📷 Capturar foto única</button></div>${last?resH():""}`}
+function resH(){const L=last,bad=L.dg.filter(x=>x.s!="ok"),tx={ok:"CONFORME",no:"NÃO CONFORME (NC)",inc:"INDETERMINADO · tratado como NC"}[L.f],lv=Math.min(...L.r.rois.map(lvl)),pd=n=>String(n+1).padStart(2,"0");
+const bl=L.bl<.4?`<div class="it wa"><div class="nm">Qualidade de imagem</div><div>Nitidez relativa = ${f2(L.bl)} (< 0,40 da referência): imagem desfocada</div><div class="ac">→ Refazer a captura com foco e iluminação adequados</div></div>`:"";
+const dgH=bad.length||bl?`<div class="c"><b>Análise de não conformidades: ${bad.length} ${bad.length==1?"NC":"NCs"}</b>${bl}${bad.map(x=>`<div class="it ${x.s=="no"?"nc":"wa"}"><div class="nm">NC-${pd(x.i)} · ${esc(x.n)} <span class="mu">(${x.k})</span></div><div>${x.t}</div><div class="mu">Referência ${sw(x.A.rgb)} · encontrado ${sw(x.B.rgb)}${x.ncc!==null?" · NCC "+f2(x.ncc):""} · similaridade ${Math.round(x.sim*100)}%</div><div class="ac">→ Ação corretiva: ${x.a}</div><div class="cmp"><figure><img src="${x.ex}" alt="">Referência (OK)</figure><figure><img src="${x.fo}" alt="">Encontrado</figure></div></div>`).join("")}${cam("📷 Reinspecionar após ação corretiva")}</div>`:`<div class="c"><b>Análise de não conformidades: nenhuma NC</b><div class="mu">Todas as ROIs conformes com a referência.</div></div>`;
+return `<div class="c"><div class="rs ${col(L.f)}">${tx}</div><div class="mu">Sinal ao WinTestEm: <b>${L.f=="ok"?"LIBERADO":"BLOQUEADO"}</b> · ${lvN[lv]}${lv<3?" (modelo em maturação: resultado indicativo)":""}</div><button class="g" style="margin-top:8px" onclick="last=null;R()">Descartar esta captura</button></div>${dgH}<div class="c"><canvas id="cv"></canvas>${L.dg.map(x=>`<div class="row"><span class="dot ${col(x.s)}"></span><span style="flex:1">ROI ${pd(x.i)} · ${esc(x.n)} <span class="mu">${x.s=="ok"?"conforme":x.k} · similaridade ${Math.round(x.sim*100)}%</span></span></div>`).join("")}</div>
+<details class="c"><summary>Treinamento supervisionado: rotular amostras desta captura</summary>${L.dg.map(x=>`<div class="row"><span style="flex:1">ROI ${pd(x.i)} · ${esc(x.n)}<div class="mu">n_OK = ${L.r.rois[x.i].ok.length} · n_NOK = ${L.r.rois[x.i].no.length} · acurácia LOO ${accTxt(L.r.rois[x.i])}</div></span><button class="g" onclick="teach('ok',${x.i})">Rotular OK</button><button class="g" onclick="teach('no',${x.i})">Rotular NOK</button></div>`).join("")}<button class="g" style="width:100%;margin-top:8px" onclick="teach('ok')">Rotular todas as ROIs como OK</button><div id="tm" class="mu" style="margin-top:8px"></div></details>`}
+async function analyze(c,r,op={}){const rc=op.rc||await fromURL(r.ref),gt=gray(c,200),gr=op.gr||gray(rc,200),bl=sharp(gt)/(sharp(gr)||1),res=judge(c,r,gt,gr,bl);
+for(let i=0;i<res.length;i++){const ro=r.rois[i],q=res[i];if(ro.tp!="ocr"||!ro.tx||(q.ncc!==null&&q.ncc<q.thr))continue;let txt;
+try{txt=await ocr(c,q.box)}catch(e){q.oc={k:"OCR indisponível",t:"Motor OCR indisponível (requer internet na primeira carga)",a:"Conectar à internet uma vez para carregar o motor OCR; conferir visualmente"};q.s="inc";continue}
+const e=nz(ro.tx),g=nz(txt),d=e&&g.includes(e)?0:lev(e,g),fi=fold(g).includes(fold(e));
+if(d==0){q.s="ok";q.sim=1;q.oc={k:"Conforme",t:`Texto conforme (OCR): “${ro.tx}”`,a:""}}
+else if(fi||d<=1){q.s="inc";q.oc={k:"Leitura OCR inconclusiva",t:`Leitura OCR inconclusiva: esperado “${ro.tx}”, lido “${g||"—"}” (distância de Levenshtein = ${d})`,a:"Aproximar a câmera, estabilizar e repetir a leitura; persistindo, conferir visualmente"}}
+else{q.s="no";q.sim=0;q.oc={k:"Divergência de texto (OCR)",t:`Divergência de texto (OCR): esperado “${ro.tx}”, lido “${g||"—"}” (distância de Levenshtein = ${d})`,a:"Conferir se a etiqueta ou identificação corresponde ao especificado"}}}
+const dg=diag(c,rc,r,res),f0=res.some(x=>x.s=="no")?"no":res.some(x=>x.s=="inc")?"inc":"ok";return{c,r,res,dg,f:bl<.4&&f0=="ok"?"inc":f0,bl,rc}}
+function fill(A){A.dg.forEach(d=>{if(d.s!="ok"&&!d.ex){d.ex=crop(A.rc,A.r.rois[d.i]);d.fo=crop(A.c,d.box)}})}
+function commit(A,silent){fill(A);last=A;S.log.unshift({t:Date.now(),n:A.r.name,f:A.f,th:thumb(A.c),d:(A.bl<.4?"Imagem desfocada; ":"")+A.dg.filter(x=>x.s!="ok").map(x=>x.n+" ("+x.k+")").join("; ")+(silent?" [auto]":"")});S.log=S.log.slice(0,80);save();if(!silent){say("");R();scrollTo(0,0);try{if(A.f!="ok")navigator.vibrate([250,120,250])}catch(e){}}}
+const curR=()=>S.recipes.find(x=>x.id==sel);
+async function go1(){const r=curR();if(!r||!r.rois.length){say("Selecione um modelo com ROIs definidas.");return}const c=await grab();if(!c)return;say("Analisando…");commit(await analyze(c,r));say("")}
+function drawLive(B){const v=$("#vd"),cv=$("#lv"),W=cv.width=v.clientWidth,H=cv.height=v.clientHeight,x=cv.getContext("2d"),on=Math.floor(Date.now()/450)%2;if(B.bl<.4)return;x.font="bold 14px sans-serif";
+B.dg.forEach(d=>{const b=d.box,bad=d.s!="ok",cc=d.s=="ok"?"#1f9d55":d.s=="no"?"#d93025":"#e0a000";x.lineWidth=3;if(bad&&on){x.fillStyle=cc+"55";x.fillRect(b.x*W,b.y*H,b.w*W,b.h*H);x.lineWidth=6}x.strokeStyle=x.fillStyle=cc;x.strokeRect(b.x*W,b.y*H,b.w*W,b.h*H);x.fillText((bad?"NC-":"")+String(d.i+1).padStart(2,"0"),b.x*W+3,Math.max(14,b.y*H-4))})}
+async function liveInsp(){const r=curR();if(!r||!r.rois.length){say("Selecione um modelo com ROIs definidas.");return}
+const rc=await fromURL(r.ref),gr=gray(rc,200),ses={ok:0,nc:0};let A=null,ko=0,kb=0,lock=false,lg="",wl=null;
+const ban=(cl,t,d)=>{$("#oi").innerHTML=`<div class="bn ${cl}">${t}</div><div class="bd">${d}</div><div class="mu" style="margin-top:6px">Sessão: ${ses.ok} conformes registradas · ${ses.nc} NC registradas</div>`};
+ovOpen("Iniciando câmera…","Congelar e registrar");lm=true;camOn();try{wl=await navigator.wakeLock.request("screen")}catch(e){}
+$("#bx").onclick=()=>ovClose();$("#bc").onclick=()=>{if(A)commit(A,0);ovClose()};
+const L=setInterval(()=>{if(lm&&A)drawLive(A)},450);
+while(lm){const c=snap();if(c){try{A=await analyze(c,r,{rc,gr});const bad=A.dg.filter(d=>d.s!="ok");
+if(A.bl<.4){ko=0;kb++;if(kb>=3)lock=false;ban("wa","AGUARDANDO IMAGEM NÍTIDA","Estabilize o aparelho (nitidez relativa "+f2(A.bl)+" < 0,40)")}
+else if(A.f=="ok"){kb=0;ko++;lg="";if(ko>=3){ban("ok","CONFORME · SINAL LIBERADO","Todas as ROIs conformes em "+ko+" quadros consecutivos."+(lock?" Registrado automaticamente.":""));if(!lock){lock=true;ses.ok++;commit(A,1);beep(880);try{navigator.vibrate(120)}catch(e){}}}else ban("wa","ANALISANDO…","Confirmando conformidade ("+ko+"/3)")}
+else{ko=0;kb++;if(kb>=3)lock=false;const sg=bad.map(d=>d.i).join();ban(A.f=="no"?"no":"wa",(A.f=="no"?"NÃO CONFORME":"INDETERMINADO")+" · SINAL BLOQUEADO",bad.slice(0,4).map(d=>"<b>NC-"+String(d.i+1).padStart(2,"0")+" "+esc(d.n)+"</b>: "+d.k+" → "+d.a).join("<br>"));
+if(kb>=4&&sg!=lg){lg=sg;ses.nc++;commit(A,1);beep(260,2);try{navigator.vibrate([200,100,200])}catch(e){}}}}
+catch(e){ban("wa","ERRO NA ANÁLISE",esc(e.message||e))}}await new Promise(z=>setTimeout(z,100))}
+clearInterval(L);try{wl&&wl.release()}catch(e){}R()}
+function teach(k,i){if(!last)return;const Z=last.r.rois;Z.forEach((o,j)=>{if(i===undefined||i===j)learn(last.c,o,k,last.res[j].box)});save();const m="Amostra rotulada como "+(k=="ok"?"OK":"NOK")+". "+(i===undefined?"Modelo: "+lvN[Math.min(...Z.map(lvl))]:"ROI "+(i+1)+": acurácia LOO "+accTxt(Z[i])+" · "+lvN[lvl(Z[i])])+". Reinspecione para validar.";const tm=$("#tm");if(tm)tm.textContent=m;say(m)}
+function paint(){const cv=$("#cv");if(!cv||!last)return;const c=last.c;cv.width=c.width;cv.height=c.height;const x=cv.getContext("2d"),W=c.width,H=c.height,fs=Math.max(14,W/32);let on=false;
+const draw=()=>{on=!on;x.drawImage(c,0,0);x.font=`bold ${fs}px sans-serif`;last.dg.forEach(d=>{const b=d.box,bad=d.s!="ok",cc=d.s=="ok"?"#1f9d55":d.s=="no"?"#d93025":"#e0a000";x.lineWidth=Math.max(3,W/150);
+if(bad&&on){x.fillStyle=cc+"55";x.fillRect(b.x*W,b.y*H,b.w*W,b.h*H);x.lineWidth=Math.max(6,W/70)}
+x.strokeStyle=x.fillStyle=cc;x.strokeRect(b.x*W,b.y*H,b.w*W,b.h*H);x.fillText((bad?"NC-":"ROI ")+String(d.i+1).padStart(2,"0")+" "+d.n,b.x*W+4,Math.max(fs,b.y*H-6))})};
+draw();if(last.dg.some(d=>d.s!="ok"))bt=setInterval(draw,450)}
 function vR(){return `<div class="c"><label>Nova receita (código do chicote)</label><input id="nm" placeholder="Ex.: CAT-1234"><button class="b" onclick="newR()">Criar receita</button></div>`+
 S.recipes.map(r=>`<div class="c row"><b style="flex:1">${esc(r.name)}</b><span class="mu">${r.rois.length} regiões</span><button class="g" onclick="edit('${r.id}')">Editar</button></div>`).join("")}
 function newR(){const n=$("#nm").value.trim();if(!n){say("Informe o código do chicote.");return}const r={id:Date.now().toString(36),name:n,ref:null,rois:[],th:.1};S.recipes.push(r);sel=r.id;save();edit(r.id)}
 async function edit(id){E=id;refC=null;const r=cur();if(r.ref)refC=await fromURL(r.ref);R()}
-function vE(){const r=cur();
+function vE(){const r=cur(),lv=r.rois.length?Math.min(...r.rois.map(lvl)):1;
 const gal=(o)=>`<div class="gal"><img class="th" style="border-color:var(--ac)" src="${crop(refC,o,64,.6)}" alt="">${(o.ot||[]).map(u=>`<img class="th" style="border-color:var(--ok)" src="${u}" alt="">`).join("")}${(o.nt||[]).map(u=>`<img class="th" style="border-color:var(--no)" src="${u}" alt="">`).join("")}</div>`;
 return `<div class="c"><div class="row"><b style="flex:1">${esc(r.name)}</b><button class="g" onclick="E=null;R()">Voltar</button></div>
-<label class="b">${r.ref?"🔄 Trocar foto de referência":"📷 Foto de referência (montagem correta)"}<input type="file" accept="image/*" capture="environment" hidden onchange="setRef(this)"></label>
-${r.ref?`<p class="mu">Arraste sobre a foto para marcar cada região a verificar. Use nomes claros, como Conector principal ou Fusível F12.</p><canvas id="ec" style="touch-action:none"></canvas>`:""}</div>
-${r.ref?`<div class="c"><b>Referências aprendidas</b><p class="mu">O que o sistema já sabe de cada região. Amarelo = referência, verde = exemplo aprovado, vermelho = defeito ensinado.</p>
-${r.rois.map((o,i)=>{const s=stats(refC,o);return `<div class="it" style="border-left-color:var(--ac)"><div class="row"><input value="${esc(o.n)}" onchange="cur().rois[${i}].n=this.value;save()"><button class="g" onclick="delRoi(${i})">✕</button></div><div class="mu">Cor esperada ${sw(s.rgb)}${cname(...s.rgb)} · ${o.ok.length} OK · ${o.no.length} NOK</div>${gal(o)}<button class="g" style="margin-top:6px" onclick="resetR(${i})">Limpar aprendizado</button></div>`}).join("")||'<p class="mu">Nenhuma região marcada ainda.</p>'}
-<div class="two"><label class="g">＋ Foto OK<input type="file" accept="image/*" capture="environment" hidden onchange="addS(this,'ok')"></label><label class="g">＋ Foto NOK<input type="file" accept="image/*" capture="environment" hidden onchange="addS(this,'no')"></label></div>
-<label id="rl" style="margin-top:8px">Rigor: ${r.th.toFixed(2)} (menor = mais rígido)</label><input type="range" min="3" max="25" value="${Math.round(r.th*100)}" oninput="rig(this.value)"></div>`:""}
-<button class="g" style="width:100%;color:var(--no)" onclick="delR()">Excluir receita</button>`}
-async function setRef(i){const f=i.files[0];i.value="";if(!f)return;const c=await load(f),r=cur();refC=c;r.ref=c.toDataURL("image/jpeg",.8);r.rois.forEach(o=>{o.ok=[feat(c,o.x,o.y,o.w,o.h)];o.no=[];o.ot=[];o.nt=[]});save();R()}
-async function addS(i,k){const f=i.files[0];i.value="";if(!f)return;const c=await load(f);cur().rois.forEach(o=>learn(c,o,k));save();say("Foto "+(k=="ok"?"OK":"NOK")+" aprendida.");R()}
+<button class="b" onclick="setRef()">${r.ref?"🔄 Substituir imagem de referência (golden sample)":"📷 Imagem de referência (golden sample)"}</button>
+${r.ref?`<p class="mu">Defina cada ROI (região de interesse) arrastando sobre a imagem. Use nomes claros: Conector principal, Fusível F12. Para etiquetas, escolha o tipo OCR.</p><canvas id="ec" style="touch-action:none"></canvas>`:""}</div>
+${r.ref?`<div class="c"><b>Referências aprendidas · ${lvN[lv]}</b><p class="mu">Para subir de nível: ${nxt[lv]}. Amarelo = referência, verde = amostra OK, vermelho = NC rotulada.</p>
+${r.rois.map((o,i)=>{const s=stats(refC,o);return `<div class="it" style="border-left-color:var(--ac)"><div class="row"><input value="${esc(o.n)}" onchange="cur().rois[${i}].n=this.value;save()"><button class="g" onclick="delRoi(${i})">✕</button></div>
+<div class="row"><select onchange="cur().rois[${i}].tp=this.value;save();R()"><option value="vis"${o.tp!="ocr"?" selected":""}>Verificação visual</option><option value="ocr"${o.tp=="ocr"?" selected":""}>Leitura OCR (texto)</option></select></div>
+${o.tp=="ocr"?`<div class="row"><input placeholder="Texto esperado" value="${esc(o.tx||"")}" onchange="cur().rois[${i}].tx=this.value;save()"><button class="g" onclick="readRef(${i})">Ler da referência</button></div>`:""}
+<div class="mu">Cor de referência ${sw(s.rgb)}${cname(...s.rgb)} · n_OK = ${o.ok.length} · n_NOK = ${o.no.length} · acurácia LOO ${accTxt(o)} · ${lvN[lvl(o)]}</div>${gal(o)}<button class="g" style="margin-top:6px" onclick="resetR(${i})">Limpar aprendizado</button></div>`}).join("")||'<p class="mu">Nenhuma ROI definida.</p>'}
+<button class="g" style="width:100%;margin-top:8px" onclick="addS('ok')">＋ Amostra OK (todas as ROIs conformes)</button><p class="mu">Para ensinar não conformidades (NOK), use a inspeção e rotule a ROI com NC.</p>
+<label id="rl" style="margin-top:8px">Limiar de decisão τ = ${f2(r.th)} (menor = mais rigoroso)</label><input type="range" min="3" max="25" value="${Math.round(r.th*100)}" oninput="rig(this.value)"></div>`:""}
+<button class="g" style="width:100%;color:var(--no)" onclick="delR()">Excluir modelo</button>`}
+async function setRef(){const c=await grab();if(!c)return;const r=cur();refC=c;r.ref=c.toDataURL("image/jpeg",.8);r.rois.forEach(o=>{o.ok=[feat(c,o.x,o.y,o.w,o.h)];o.no=[];o.ot=[];o.nt=[]});save();R()}
+async function addS(k){const c=await grab();if(!c)return;const r=cur(),gt=gray(c,200),gr=gray(refC,200);r.rois.forEach(o=>learn(c,o,k,find(gt,gr,o).box));save();say("Amostra OK adicionada (localização automática por NCC).");R()}
+async function readRef(i){const o=cur().rois[i];say("Lendo texto da referência (OCR)…");try{o.tx=(await ocr(refC,o)).trim().replace(/\s+/g," ");save();say("Texto lido. Confira e corrija se necessário.");R()}catch(e){say("OCR indisponível: conecte à internet para carregar o motor.")}}
 function resetR(i){const o=cur().rois[i];o.ok=[feat(refC,o.x,o.y,o.w,o.h)];o.no=[];o.ot=[];o.nt=[];save();R()}
 function delRoi(i){cur().rois.splice(i,1);save();R()}
 function delR(){S.recipes=S.recipes.filter(x=>x.id!=E);E=null;sel="";save();R()}
@@ -122,12 +194,19 @@ const draw=(a,b)=>{const x=cv.getContext("2d"),W=cv.width,H=cv.height;x.drawImag
 const P=e=>{const b=cv.getBoundingClientRect();return[(e.clientX-b.left)/b.width,(e.clientY-b.top)/b.height]};
 draw();cv.onpointerdown=e=>{a=P(e);cv.setPointerCapture(e.pointerId)};cv.onpointermove=e=>{if(a)draw(a,P(e))};
 cv.onpointerup=e=>{if(!a)return;const b=P(e),x=Math.min(a[0],b[0]),y=Math.min(a[1],b[1]),w=Math.abs(a[0]-b[0]),h=Math.abs(a[1]-b[1]);a=null;
-if(w>.02&&h>.02){const r=cur();r.rois.push({n:"R"+(r.rois.length+1),x,y,w,h,ok:[feat(refC,x,y,w,h)],no:[],ot:[],nt:[]});save()}R()}}
+if(w>.02&&h>.02){const r=cur();r.rois.push({n:"R"+(r.rois.length+1),x,y,w,h,ok:[feat(refC,x,y,w,h)],no:[],ot:[],nt:[],tp:"vis",tx:""});save()}R()}}
 function vL(){const n={ok:0,no:0,inc:0};S.log.forEach(l=>n[l.f]++);
-return `<div class="three" style="margin-bottom:10px"><div class="kp ok"><b>${n.ok}</b>aprovadas</div><div class="kp no"><b>${n.no}</b>reprovadas</div><div class="kp wa"><b>${n.inc}</b>inconclusivas</div></div>`+
-S.log.map(l=>`<div class="c row"><img src="${l.th}" width="56" height="42" style="object-fit:cover;border-radius:6px" alt=""><div style="flex:1"><b>${esc(l.n)}</b><div class="mu">${new Date(l.t).toLocaleString("pt-BR")}</div>${l.d?`<div style="font-size:.85rem">${esc(l.d)}</div>`:""}</div><span class="dot ${col(l.f)}"></span></div>`).join("")+
+return `<div class="three" style="margin-bottom:10px"><div class="kp ok"><b>${n.ok}</b>conformes</div><div class="kp no"><b>${n.no}</b>não conformes</div><div class="kp wa"><b>${n.inc}</b>indeterminados</div></div>`+
+S.log.map((l,k)=>`<div class="c row"><img src="${l.th}" width="56" height="42" style="object-fit:cover;border-radius:6px" alt=""><div style="flex:1"><b>${esc(l.n)}</b><div class="mu">${new Date(l.t).toLocaleString("pt-BR")}</div>${l.d?`<div style="font-size:.85rem">${esc(l.d)}</div>`:""}</div><span class="dot ${col(l.f)}"></span><button class="g" onclick="delL(${k})">✕</button></div>`).join("")+
 (S.log.length?`<button class="g" style="width:100%" onclick="csv()">Mostrar CSV para copiar</button><textarea id="cs" rows="6" hidden></textarea>`:'<p class="mu">Nenhuma inspeção registrada ainda.</p>')}
-function csv(){const t=$("#cs");t.hidden=false;t.value="data_hora;receita;resultado;diagnostico\n"+S.log.map(l=>[new Date(l.t).toLocaleString("pt-BR"),l.n,{ok:"APROVADO",no:"REPROVADO",inc:"INCONCLUSIVO"}[l.f],l.d].join(";")).join("\n");t.select();try{navigator.clipboard.writeText(t.value)}catch(e){}}
-function R(){document.querySelectorAll("nav button").forEach(b=>b.classList.toggle("on",b.dataset.v==V));$("#app").innerHTML=V=="insp"?vI():V=="rec"?(E?vE():vR()):vL();if(V=="insp")paint();if(V=="rec"&&E)paintE()}
+function delL(k){S.log.splice(k,1);save();R()}
+function csv(){const t=$("#cs");t.hidden=false;t.value="data_hora;receita;resultado;diagnostico\n"+S.log.map(l=>[new Date(l.t).toLocaleString("pt-BR"),l.n,{ok:"CONFORME",no:"NAO_CONFORME",inc:"INDETERMINADO"}[l.f],l.d].join(";")).join("\n");t.select();try{navigator.clipboard.writeText(t.value)}catch(e){}}
+function vD(){const kb=Math.round(JSON.stringify(S).length/1024),nS=S.recipes.reduce((a,r)=>a+r.rois.reduce((b,o)=>b+Math.max(0,o.ok.length-1)+o.no.length,0),0);
+return `<div class="c"><b>Dados armazenados neste aparelho</b><p class="mu">${S.recipes.length} modelos · ${S.log.length} inspeções registradas · ${nS} amostras de treinamento · aprox. ${kb} KB. Nada é enviado a servidores. Também é possível apagar item a item: ROI e aprendizado (Referências), modelo (Referências) e cada inspeção (Registro).</p></div>
+<div class="c"><button class="g" style="width:100%" onclick="wipe('log')">Apagar registro de inspeções</button><button class="g" style="width:100%;margin-top:8px" onclick="wipe('train')">Apagar treinamento (amostras OK/NOK), mantendo referências e ROIs</button><button class="g" style="width:100%;margin-top:8px" onclick="wipe('models')">Apagar todos os modelos (referências, ROIs e treinamento)</button><button class="b" style="background:var(--no);color:#fff" onclick="wipe('all')">Apagar TUDO e limpar o cache do app</button></div>`}
+async function wipe(w){const m={log:"Apagar todo o registro de inspeções?",train:"Apagar todas as amostras de treinamento (OK/NOK)? As referências e ROIs serão mantidas.",models:"Apagar TODOS os modelos (referências, ROIs e treinamento)?",all:"Apagar TODOS os dados e limpar o cache do app? Esta ação não pode ser desfeita."}[w];if(!confirm(m))return;
+if(w=="log"||w=="all")S.log=[];if(w=="train")S.recipes.forEach(r=>r.rois.forEach(o=>{o.ok=o.ok.slice(0,1);o.no=[];o.ot=[];o.nt=[]}));if(w=="models"||w=="all"){S.recipes=[];sel="";E=null}
+last=null;if(w=="all"){S={recipes:[],log:[]};try{localStorage.removeItem("kv");const k=await caches.keys();await Promise.all(k.map(x=>caches.delete(x)))}catch(e){}}else save();say("Dados apagados.");R()}
+function R(){clearInterval(bt);document.querySelectorAll("nav button").forEach(b=>b.classList.toggle("on",b.dataset.v==V));$("#app").innerHTML=V=="insp"?vI():V=="rec"?(E?vE():vR()):V=="dat"?vD():vL();if(V=="insp")paint();if(V=="rec"&&E)paintE()}
 R();
 </script><script>if("serviceWorker"in navigator)addEventListener("load",()=>navigator.serviceWorker.register("sw.js").catch(()=>{}))</script></body></html>
