@@ -1,23 +1,17 @@
 <!doctype html>
 <html lang="pt-BR"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<meta name="color-scheme" content="light dark">
-<link rel="manifest" href="manifest.webmanifest">
-<meta name="theme-color" content="#3a3a3a">
-<link rel="apple-touch-icon" href="icon-192.png">
-<title>Kabel Vision · Inspeção por imagem</title>
-<link rel="stylesheet" href="style.css">
-<script defer src="https://cdn.jsdelivr.net/npm/tesseract.js@5.1.1/dist/tesseract.min.js"></script>
-</head><body>
-<header><b>KABEL</b> Vision <span>inspeção por imagem</span><button class="g" onclick="document.documentElement.classList.toggle('big')" title="Modo texto grande">Aa</button></header>
+<meta name="color-scheme" content="light dark"><meta name="theme-color" content="#3a3a3a">
+<title>Kabel Vision Station</title><link rel="stylesheet" href="style.css"></head><body>
+<header><b>KABEL</b> Vision <span>estação de inspeção</span><button class="g" onclick="document.documentElement.classList.toggle('big')" title="Texto grande">Aa</button></header>
 <main>
-<nav><button data-v="insp" onclick="go('insp')">Inspecionar</button><button data-v="rec" onclick="go('rec')">Referências</button><button data-v="log" onclick="go('log')">Relatório</button><button data-v="cfg" onclick="go('cfg')">Config</button></nav>
+<nav><button data-v="insp" onclick="go('insp')">Inspecionar</button><button data-v="rec" onclick="go('rec')">Receitas</button><button data-v="log" onclick="go('log')">Relatório</button><button data-v="cfg" onclick="go('cfg')">Config</button></nav>
 <div id="msg" class="mu"></div><div id="app"></div>
-<p class="mu">Versão 3 · dados, fotos e vetores faciais ficam apenas neste aparelho. O sinal ao relé usa Bluetooth (Chrome).</p>
+<p class="mu">Versão 4 · a visão roda no PC da mesa; receitas, histórico e backups ficam nele.</p>
 </main>
-<div id="ov" hidden><div id="rfw" hidden><canvas id="rfc"></canvas>Referência correta (golden sample)</div><div id="vw"><video id="vd" playsinline muted autoplay></video><canvas id="lv"></canvas></div><div id="oi"></div><div id="ob"><button class="g" id="bx">✕ Fechar</button><button class="g" id="bs">⟲ Câmera</button><label class="g">🖼 Galeria<input type="file" accept="image/*" hidden id="gf"></label><button class="b" id="bc" style="margin:0">Capturar</button></div></div>
-<script src="vision.js"></script>
-<script src="dev.js"></script>
-<script src="app.js"></script>
-<script>if("serviceWorker"in navigator)addEventListener("load",()=>navigator.serviceWorker.register("sw.js").catch(()=>{}))</script>
+<div id="ov" hidden><div id="vw"><video id="vd" playsinline muted autoplay></video><canvas id="lv"></canvas></div>
+<div id="top"><span id="ttl"></span><button class="g" id="bv" onclick="toggleVoz()">🔊</button><button class="g" id="bs">⟲</button><button class="g" id="bx">✕</button></div>
+<div id="rfw" hidden><canvas id="rfc"></canvas></div><div id="oi"></div>
+<div id="ob"><label class="g">🖼<input type="file" accept="image/*" hidden id="gf"></label><button class="b" id="bc">Capturar</button></div></div>
+<script src="dev.js"></script><script src="ui.js"></script>
 </body></html>
